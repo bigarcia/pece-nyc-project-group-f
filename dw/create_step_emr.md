@@ -70,7 +70,11 @@ aws emr create-cluster \
  --region "us-east-1"
 
 ```
+
+![image](https://github.com/user-attachments/assets/4726a69f-6adf-402e-8e8e-5992f2fbce9e)
+
 Criação de etapa:
+
 ```
 aws emr add-steps \
   --cluster-id j-2BF29XPYP368K \

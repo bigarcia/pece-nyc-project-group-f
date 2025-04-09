@@ -114,7 +114,9 @@ Caso ainda assim precise da senha, redifina.
 A alteração da senha não reinicia a instância
 
 7. Criar Banco de dados.
+   
    7.1 Conectar na instância
+   
 `mysql -h nyc-dw-mysql.coseekllgrql.us-east-1.rds.amazonaws.com -u admin -p`
 
 ![image](https://github.com/user-attachments/assets/aaf58740-9938-4701-b2ab-b2ec0c88c310)

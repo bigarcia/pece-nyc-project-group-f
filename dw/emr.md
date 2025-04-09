@@ -3,22 +3,20 @@ Criação do EMR na mesma rede VPC do RDS
 
 ```
 aws emr create-cluster \
-  --name "NYC Taxi Load to DW and RDS" \
-  --release-label emr-6.15.0 \
-  --applications Name=Spark \
-  --log-uri s3://mba-nyc-dataset/emr/logs/ \
-  --ec2-attributes KeyName=emr-keypair,SubnetId=subnet-08b07f8cf72e46285 \
-  --instance-type m5.xlarge \
-  --instance-count 2 \
-  --use-default-roles \
-  --auto-terminate \
-  --steps Type=Spark,Name="Run load_to_dw_and_rds.py",ActionOnFailure=CONTINUE,Args=[--deploy-mode,cluster,--master,yarn,s3://mba-nyc-dataset/emr/scripts/load_to_dw_and_rds.py] \
-  --configurations '[{"Classification":"spark-defaults","Properties":{"spark.executor.memory":"4g","spark.driver.memory":"4g"}}]'
-
-
+ --name "EMR PySpark Cluster" \
+ --log-uri "s3://mba-nyc-dataset/emr/logs" \
+ --release-label "emr-6.10.0" \
+ --service-role "EMR_DefaultRole" \
+ --unhealthy-node-replacement \
+ --ec2-attributes '{"InstanceProfile":"EMR_EC2_DefaultRole","EmrManagedMasterSecurityGroup":"sg-039e4551e594b0810","EmrManagedSlaveSecurityGroup":"sg-0ecce9d7903e4424f","KeyName":"emr-keypair","AvailabilityZone":"us-east-1a"}' \
+ --applications Name=Spark \
+ --instance-groups '[{"InstanceCount":2,"InstanceGroupType":"CORE","Name":"Core","InstanceType":"m5.xlarge","EbsConfiguration":{"EbsBlockDeviceConfigs":[{"VolumeSpecification":{"VolumeType":"gp2","SizeInGB":32},"VolumesPerInstance":2}]}},{"InstanceCount":1,"InstanceGroupType":"MASTER","Name":"Master","InstanceType":"m5.xlarge","EbsConfiguration":{"EbsBlockDeviceConfigs":[{"VolumeSpecification":{"VolumeType":"gp2","SizeInGB":32},"VolumesPerInstance":2}]}}]' \
+ --steps '[{"Name":"Load To DW and RDS","ActionOnFailure":"CONTINUE","Jar":"command-runner.jar","Properties":"","Args":["spark-submit","--deploy-mode","cluster","--master","yarn","--conf","spark.jars=s3://mba-nyc-dataset/emr/jars/mysql-connector-j-8.0.33.jar","s3://mba-nyc-dataset/emr/scripts/load_to_dw_and_rds.py"],"Type":"CUSTOM_JAR"},{"Name":"Load to DW and RDS","ActionOnFailure":"CONTINUE","Jar":"command-runner.jar","Properties":"","Args":["spark-submit","--deploy-mode","cluster","--master","yarn","--jars","s3://mba-nyc-dataset/emr/jars/mysql-connector-j-8.0.33.jar","s3://mba-nyc-dataset/emr/scripts/load_to_dw_and_rds.py"],"Type":"CUSTOM_JAR"},{"Name":"Load to DW and RDS","ActionOnFailure":"CONTINUE","Jar":"command-runner.jar","Properties":"","Args":["spark-submit","--deploy-mode","cluster","--master","yarn","--jars","s3://mba-nyc-dataset/emr/jars/mysql-connector-j-8.0.33.jar","s3://mba-nyc-dataset/emr/scripts/load_to_dw_and_rds.py"],"Type":"CUSTOM_JAR"},{"Name":"Load DW and RDS (script atualizado)","ActionOnFailure":"CONTINUE","Jar":"command-runner.jar","Properties":"","Args":["spark-submit","--deploy-mode","cluster","--master","yarn","--jars","s3://mba-nyc-dataset/emr/jars/mysql-connector-j-8.0.33.jar","s3://mba-nyc-dataset/emr/scripts/load_to_dw_and_rds.py"],"Type":"CUSTOM_JAR"}]' \
+ --scale-down-behavior "TERMINATE_AT_TASK_COMPLETION" \
+ --region "us-east-1"
 ```
 
-![image](https://github.com/user-attachments/assets/4726a69f-6adf-402e-8e8e-5992f2fbce9e)
+![image](https://github.com/user-attachments/assets/2e54f869-d624-45d9-a868-dffe44334a20)
 
 Criação de etapa:
 
@@ -27,7 +25,7 @@ aws emr add-steps \
   --cluster-id j-38ZUIC0TPOFM6 \
   --steps '[
     {
-      "Name": "Load to DW and RDS",
+      "Name": "Load DW and RDS (script atualizado)",
       "ActionOnFailure": "CONTINUE",
       "Type": "CUSTOM_JAR",
       "Jar": "command-runner.jar",
@@ -42,10 +40,9 @@ aws emr add-steps \
   ]' \
   --region us-east-1
 
-
 ```
 
-![image](https://github.com/user-attachments/assets/a03a2d3b-bf9b-4443-bce2-60bb2f15b8a0)
+![image](https://github.com/user-attachments/assets/dc87c374-8ab1-4bdf-9724-eca6591b4b73)
 
 `--deploy-mode cluster`: roda o script diretamente no cluster EMR.
 

@@ -1,18 +1,17 @@
 
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
-    col, year, month, dayofweek, hour, lit, to_date, monotonically_increasing_id
+    col, year, month, dayofmonth, dayofweek, to_date, lit, monotonically_increasing_id
 )
 from pyspark.sql.types import LongType, DoubleType
 import os
 
-# Constantes
 BUCKET_S3 = "mba-nyc-dataset"
 TRUSTED_PATH = f"s3a://{BUCKET_S3}/trusted"
 DW_PATH = f"s3a://{BUCKET_S3}/dw"
 RDS_JDBC_URL = "jdbc:mysql://nyc-dw-mysql.coseekllgrql.us-east-1.rds.amazonaws.com:3306/nyc_dw"
 RDS_USER = "admin"
-RDS_PASSWORD = "SuaSenhaForte123"  # Substitua pela senha real
+RDS_PASSWORD = "SuaSenhaForte123"
 RDS_JAR_PATH = f"s3://{BUCKET_S3}/emr/jars/mysql-connector-j-8.0.33.jar"
 
 SERVICE_TYPES = ["yellowTaxi", "greenTaxi", "forHireVehicle", "hvfhs"]
@@ -38,24 +37,25 @@ def normalize_columns(df: DataFrame) -> DataFrame:
         "tpep_dropoff_datetime": "dropoff_datetime",
         "lpep_pickup_datetime": "pickup_datetime",
         "lpep_dropoff_datetime": "dropoff_datetime",
-        "PULocationID": "pickup_location_id",
-        "DOLocationID": "dropoff_location_id",
-        "RatecodeID": "ratecode_id",
-        "VendorID": "vendor_id",
+        "PULocationID": "pickup_location",
+        "DOLocationID": "dropoff_location",
+        "RatecodeID": "code_ratecode",
+        "VendorID": "code_vendor",
         "originating_base_num": "originating_base_number",
-        "Affiliated_base_number": "affiliated_base_number"
+        "Affiliated_base_number": "affiliated_base_number",
+        "payment_type": "code_payment_type"
     }
     for old, new in rename_map.items():
         if old in df.columns:
             df = df.withColumnRenamed(old, new)
 
     cast_map = {
-        "vendor_id": LongType(),
-        "ratecode_id": DoubleType(),
-        "payment_type": DoubleType(),
+        "code_vendor": LongType(),
+        "code_ratecode": DoubleType(),
+        "code_payment_type": DoubleType(),
         "trip_type": DoubleType(),
-        "pickup_location_id": DoubleType(),
-        "dropoff_location_id": DoubleType()
+        "pickup_location": DoubleType(),
+        "dropoff_location": DoubleType()
     }
     for col_name, dtype in cast_map.items():
         if col_name in df.columns:
@@ -64,24 +64,41 @@ def normalize_columns(df: DataFrame) -> DataFrame:
 
 def create_dimensions_and_fact(df: DataFrame, spark: SparkSession):
     df = df.withColumn("trip_id", monotonically_increasing_id())
+    df = df.withColumn("pickup_date", to_date("pickup_datetime"))
 
-    dim_time = df.select("pickup_datetime")         .withColumn("time_id", monotonically_increasing_id())         .withColumn("hour", hour("pickup_datetime"))         .withColumn("day_of_week", dayofweek("pickup_datetime"))         .withColumn("day", dayofweek("pickup_datetime"))         .withColumn("month", month("pickup_datetime"))         .withColumn("year", year("pickup_datetime"))         .dropDuplicates(["pickup_datetime"])
+    dim_date = df.select("pickup_date").distinct()         .withColumn("pk_date", monotonically_increasing_id())         .withColumn("day", dayofmonth("pickup_date"))         .withColumn("month", month("pickup_date"))         .withColumn("year", year("pickup_date"))         .withColumn("day_of_week", dayofweek("pickup_date"))
 
-    dim_service_type = df.select("service_type").dropDuplicates().withColumn("service_type_id", monotonically_increasing_id())
-    dim_vendor = df.select("vendor_id").dropna().dropDuplicates().withColumn("vendor_key", monotonically_increasing_id())
-    dim_payment_type = df.select("payment_type").dropna().dropDuplicates().withColumn("payment_type_id", monotonically_increasing_id())
-    dim_ratecode = df.select("ratecode_id").dropna().dropDuplicates().withColumn("ratecode_id_key", monotonically_increasing_id())
-    dim_location = df.select("pickup_location_id", "dropoff_location_id").dropna().dropDuplicates().withColumn("location_id", monotonically_increasing_id())
+    df = df.join(dim_date.select("pickup_date", "pk_date"), on="pickup_date", how="left")            .withColumnRenamed("pk_date", "fk_date")
+
+    dim_service_type = df.select("service_type").dropDuplicates().withColumn("pk_service_type", monotonically_increasing_id())                          .withColumnRenamed("service_type", "description")
+
+    df = df.join(dim_service_type, on="description", how="left")            .withColumnRenamed("pk_service_type", "fk_service_type")
+
+    dim_vendor = df.select("code_vendor").dropna().dropDuplicates().withColumn("pk_vendor", monotonically_increasing_id())                    .withColumnRenamed("code_vendor", "code")
+
+    df = df.join(dim_vendor, on="code", how="left")            .withColumnRenamed("pk_vendor", "fk_vendor")
+
+    dim_payment_type = df.select("code_payment_type").dropna().dropDuplicates().withColumn("pk_payment_type", monotonically_increasing_id())                          .withColumnRenamed("code_payment_type", "code")
+
+    df = df.join(dim_payment_type, on="code", how="left")            .withColumnRenamed("pk_payment_type", "fk_payment_type")
+
+    dim_ratecode = df.select("code_ratecode").dropna().dropDuplicates().withColumn("pk_ratecode", monotonically_increasing_id())                      .withColumnRenamed("code_ratecode", "code")
+
+    df = df.join(dim_ratecode, on="code", how="left")            .withColumnRenamed("pk_ratecode", "fk_ratecode")
+
+    dim_location = df.select("pickup_location", "dropoff_location").dropna().dropDuplicates()                      .withColumn("pk_location", monotonically_increasing_id())
+
+    df = df.join(dim_location, on=["pickup_location", "dropoff_location"], how="left")            .withColumnRenamed("pk_location", "fk_location")
 
     fact_taxi_trip = df.select(
         "trip_id", "pickup_datetime", "dropoff_datetime", "passenger_count",
         "trip_distance", "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
-        "total_amount", "payment_type", "ratecode_id", "vendor_id", "pickup_location_id",
-        "dropoff_location_id", "service_type"
+        "total_amount", "fk_payment_type", "fk_ratecode", "fk_vendor", "fk_location",
+        "fk_service_type", "fk_date"
     )
 
     tables = {
-        "dim_time": dim_time,
+        "dim_date": dim_date,
         "dim_service_type": dim_service_type,
         "dim_vendor": dim_vendor,
         "dim_payment_type": dim_payment_type,

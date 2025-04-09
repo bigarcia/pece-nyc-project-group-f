@@ -52,28 +52,35 @@ Retorno:
 
 ```
 aws rds create-db-instance \
-  --db-instance-identifier nyc-dw-mysql \
-  --db-instance-class db.t3.micro \
+  --db-instance-identifier nyc-dw-mysql-v2 \
+  --db-instance-class db.t3.medium \
   --engine mysql \
-  --allocated-storage 20 \
   --master-username admin \
-  --master-user-password SuaSenhaForte123 \
+  --master-user-password 'GrupoF_MBA_nyc2025' \
+  --allocated-storage 50 \
+  --storage-type gp2 \
   --vpc-security-group-ids sg-0705f0473d9bcdc1b \
-  --availability-zone us-east-1a \
   --publicly-accessible \
-  --backup-retention-period 0 \
-  --no-multi-az
+  --availability-zone us-east-1a \
+  --backup-retention-period 1 \
+  --no-multi-az \
+  --db-name nyc_dw \
+  --region us-east-1
 
 ```
-![image](https://github.com/user-attachments/assets/d9c78ba6-eb3d-446d-9b55-caead2d065a6)
 
-![image](https://github.com/user-attachments/assets/682eca06-631e-4dc2-b9de-0245c5409502)
+
+![image](https://github.com/user-attachments/assets/2721c0ad-a437-4f74-8294-87cf0ccaede2)
+
+![image](https://github.com/user-attachments/assets/1b892c0b-264c-4333-89a1-25b6c098415f)
+
+
 
 4. Verificar status
 
 ```
 aws rds describe-db-instances \
-  --db-instance-identifier nyc-dw-mysql \
+  --db-instance-identifier nyc-dw-mysql-v2 \
   --query "DBInstances[0].DBInstanceStatus"
 ```
 ![image](https://github.com/user-attachments/assets/2c6fcc00-bd4a-45a3-bb84-b19a2af230f4)
@@ -82,7 +89,7 @@ aws rds describe-db-instances \
 
 ```
 aws rds describe-db-instances \
-  --db-instance-identifier nyc-dw-mysql \
+  --db-instance-identifier nyc-dw-mysql-v2 \
   --query "DBInstances[0].Endpoint.Address" \
   --output text
 ```
@@ -93,8 +100,8 @@ nyc-dw-mysql.coseekllgrql.us-east-1.rds.amazonaws.com
 6.Pegar usuário e senha
 É o mesmo definido na criação da instância
 ```
- --master-username admin \
---master-user-password SuaSenhaForte123 \
+--master-username admin \
+--master-user-password GrupoF_MBA_nyc2025 \
 ```
 Seção "Configurações":
 - Usuário mestre (Master username): admin

@@ -44,10 +44,45 @@ aws emr add-steps \
 
 ![image](https://github.com/user-attachments/assets/dc87c374-8ab1-4bdf-9724-eca6591b4b73)
 
-`--deploy-mode cluster`: roda o script diretamente no cluster EMR.
+- `--deploy-mode cluster`: roda o script diretamente no cluster EMR.
 
-`--master yarn`: usa o YARN como gerenciador de recursos.
+- `--master yarn`: usa o YARN como gerenciador de recursos.
 
-`--jars`: adiciona o conector JDBC necessário para escrever no RDS MySQL.
+- `--jars`: adiciona o conector JDBC necessário para escrever no RDS MySQL.
 
-`s3://.../load_to_dw_and_rds.py`: caminho script no S3.
+- `s3://.../load_to_dw_and_rds.py`: caminho script no S3.
+
+Permissões necessárias no bucket:
+
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowFullAccessToSpecificAccounts",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::576030079868:root",
+                    "arn:aws:iam::203375014542:root",
+                    "arn:aws:iam::290302628046:root"
+                ]
+            },
+            "Action": "s3:*",
+            "Resource": [
+                "arn:aws:s3:::mba-nyc-dataset",
+                "arn:aws:s3:::mba-nyc-dataset/*"
+            ]
+        },
+        {
+            "Sid": "AllowEMRReadAccessToJar",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::203375014542:role/EMR_EC2_DefaultRole"
+            },
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::mba-nyc-dataset/emr/jars/mysql-connector-j-8.0.33.jar"
+        }
+    ]
+}
+```

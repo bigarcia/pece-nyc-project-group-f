@@ -9,9 +9,9 @@ import os
 BUCKET_S3 = "mba-nyc-dataset"
 TRUSTED_PATH = f"s3a://{BUCKET_S3}/trusted"
 DW_PATH = f"s3a://{BUCKET_S3}/dw"
-RDS_JDBC_URL = "jdbc:mysql://nyc-dw-mysql.coseekllgrql.us-east-1.rds.amazonaws.com:3306/nyc_dw"
+RDS_JDBC_URL = "jdbc:mysql://nyc-dw-mysql-v2.coseekllgrql.us-east-1.rds.amazonaws.com:3306/nyc_dw"
 RDS_USER = "admin"
-RDS_PASSWORD = "SuaSenhaForte123"
+RDS_PASSWORD = "GrupoF_MBA_nyc2025"
 RDS_JAR_PATH = f"s3://{BUCKET_S3}/emr/jars/mysql-connector-j-8.0.33.jar"
 
 SERVICE_TYPES = ["yellowTaxi", "greenTaxi", "forHireVehicle", "hvfhs"]

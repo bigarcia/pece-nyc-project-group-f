@@ -3,34 +3,18 @@ Criação do EMR na mesma rede VPC do RDS
 
 ```
 aws emr create-cluster \
-  --name "NYC EMR in RDS VPC" \
-  --release-label "emr-6.10.0" \
+  --name "NYC Taxi Load to DW and RDS" \
+  --release-label emr-6.15.0 \
   --applications Name=Spark \
-  --log-uri "s3://mba-nyc-dataset/emr/logs" \
-  --ec2-attributes '{
-    "InstanceProfile":"EMR_EC2_DefaultRole",
-    "KeyName":"emr-keypair",
-    "SubnetId":"subnet-08b07f8cf72e46285",
-    "EmrManagedMasterSecurityGroup":"sg-0705f0473d9bcdc1b",
-    "EmrManagedSlaveSecurityGroup":"sg-0705f0473d9bcdc1b"
-  }' \
-  --service-role "EMR_DefaultRole" \
-  --instance-groups '[
-    {
-      "InstanceGroupType":"MASTER",
-      "InstanceType":"m5.xlarge",
-      "InstanceCount":1,
-      "Name":"Master nodes"
-    },
-    {
-      "InstanceGroupType":"CORE",
-      "InstanceType":"m5.xlarge",
-      "InstanceCount":2,
-      "Name":"Core nodes"
-    }
-  ]' \
-  --scale-down-behavior "TERMINATE_AT_TASK_COMPLETION" \
-  --region us-east-1
+  --log-uri s3://mba-nyc-dataset/emr/logs/ \
+  --ec2-attributes KeyName=emr-keypair,SubnetId=subnet-08b07f8cf72e46285 \
+  --instance-type m5.xlarge \
+  --instance-count 2 \
+  --use-default-roles \
+  --auto-terminate \
+  --steps Type=Spark,Name="Run load_to_dw_and_rds.py",ActionOnFailure=CONTINUE,Args=[--deploy-mode,cluster,--master,yarn,s3://mba-nyc-dataset/emr/scripts/load_to_dw_and_rds.py] \
+  --configurations '[{"Classification":"spark-defaults","Properties":{"spark.executor.memory":"4g","spark.driver.memory":"4g"}}]'
+
 
 ```
 

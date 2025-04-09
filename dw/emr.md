@@ -52,6 +52,16 @@ aws emr add-steps \
 
 - `s3://.../load_to_dw_and_rds.py`: caminho script no S3.
 
+
+Escalar o grupo CORE para 3 instâncias
+
+```
+aws emr modify-instance-groups \
+  --cluster-id j-38ZUIC0TPOFM6 \
+  --instance-groups InstanceGroupId=ig-2J7DSTDHV29W7,InstanceCount=3 \
+  --region us-east-1
+```
+
 Permissões necessárias no bucket:
 
 ```

@@ -1,70 +1,36 @@
 
-Criação do EMR:
+Criação do EMR na mesma rede VPC do RDS
 
 ```
 aws emr create-cluster \
-  --name "EMR PySpark Cluster" \
+  --name "NYC EMR in RDS VPC" \
   --release-label "emr-6.10.0" \
   --applications Name=Spark \
   --log-uri "s3://mba-nyc-dataset/emr/logs" \
-  --service-role "EMR_DefaultRole" \
-  --unhealthy-node-replacement \
-  --scale-down-behavior "TERMINATE_AT_TASK_COMPLETION" \
   --ec2-attributes '{
     "InstanceProfile":"EMR_EC2_DefaultRole",
-    "EmrManagedMasterSecurityGroup":"sg-039e4551e594b0810",
-    "EmrManagedSlaveSecurityGroup":"sg-0ecce9d7903e4424f",
     "KeyName":"emr-keypair",
-    "AvailabilityZone":"us-east-1a"
+    "SubnetId":"subnet-08b07f8cf72e46285",
+    "EmrManagedMasterSecurityGroup":"sg-0705f0473d9bcdc1b",
+    "EmrManagedSlaveSecurityGroup":"sg-0705f0473d9bcdc1b"
   }' \
+  --service-role "EMR_DefaultRole" \
   --instance-groups '[
     {
-      "InstanceCount":1,
       "InstanceGroupType":"MASTER",
-      "Name":"Master",
       "InstanceType":"m5.xlarge",
-      "EbsConfiguration":{
-        "EbsBlockDeviceConfigs":[{
-          "VolumeSpecification":{
-            "VolumeType":"gp2",
-            "SizeInGB":32
-          },
-          "VolumesPerInstance":2
-        }]
-      }
+      "InstanceCount":1,
+      "Name":"Master nodes"
     },
     {
-      "InstanceCount":2,
       "InstanceGroupType":"CORE",
-      "Name":"Core",
       "InstanceType":"m5.xlarge",
-      "EbsConfiguration":{
-        "EbsBlockDeviceConfigs":[{
-          "VolumeSpecification":{
-            "VolumeType":"gp2",
-            "SizeInGB":32
-          },
-          "VolumesPerInstance":2
-        }]
-      }
+      "InstanceCount":2,
+      "Name":"Core nodes"
     }
   ]' \
-  --steps '[
-    {
-      "Name":"Load To DW and RDS",
-      "ActionOnFailure":"CONTINUE",
-      "Type":"CUSTOM_JAR",
-      "Jar":"command-runner.jar",
-      "Args":[
-        "spark-submit",
-        "--deploy-mode","cluster",
-        "--master","yarn",
-        "--conf","spark.jars=s3://mba-nyc-dataset/emr/jars/mysql-connector-j-8.0.33.jar",
-        "s3://mba-nyc-dataset/emr/scripts/load_to_dw_and_rds.py"
-      ]
-    }
-  ]' \
-  --region "us-east-1"
+  --scale-down-behavior "TERMINATE_AT_TASK_COMPLETION" \
+  --region us-east-1
 
 ```
 

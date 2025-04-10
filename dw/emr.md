@@ -67,3 +67,7 @@ Permissões necessárias no bucket:
     ]
 }
 ```
+
+CLONE DO EMR
+![image](https://github.com/user-attachments/assets/46ba77fd-d5f7-4b76-a605-281954ff9cfe)
+

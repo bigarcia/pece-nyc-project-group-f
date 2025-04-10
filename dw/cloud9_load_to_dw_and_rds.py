@@ -1,125 +1,228 @@
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
-    lit, to_date, date_format, hour, year, month, dayofweek, when, monotonically_increasing_id, col
+    col, year, month, dayofmonth, dayofweek, to_date, lit, monotonically_increasing_id, when, date_format
 )
-from pyspark.sql.types import LongType, DoubleType, StringType
-from typing import List, Tuple, Union
+from pyspark.sql.types import LongType, DoubleType
+import os
 
 # Caminho da camada trusted e destino da camada dw
-TRUSTED_PATH = "s3a://mba-nyc-dataset/trusted"
-DW_PATH = "s3a://mba-nyc-dataset/dw"
-RDS_JDBC_URL = "jdbc:mysql://nyc-dw-mysql.coseekllgrql.us-east-1.rds.amazonaws.com:3306/nyc_dw"
+BUCKET_S3 = "f-mba-nyc-dataset"
+TRUSTED_PATH = f"s3a://{BUCKET_S3}/trusted"
+DW_PATH = f"s3a://{BUCKET_S3}/dw"
+RDS_JDBC_JAR = f"s3a://{BUCKET_S3}/emr/jars/mysql-connector-j-8.0.33.jar"
+RDS_JDBC_URL = "jdbc:mysql://nyc-dw-mysql-v2.chmgbrx9sdjy.us-east-1.rds.amazonaws.com:3306/nyc_dw"
 RDS_USER = "admin"
-RDS_PASSWORD = "SuaSenhaForte123"
+RDS_PASSWORD = "GrupoF_MBA_nyc2025"
+# SERVICE_TYPES = ["yellowTaxi", "greenTaxi"]
+SERVICE_TYPES = ["yellowTaxi", "greenTaxi", "forHireVehicle", "highVolumeForHire"]
 
 def create_spark_session(app_name: str) -> SparkSession:
     jars_path = "/home/ec2-user/spark_jars/hadoop-aws-3.3.1.jar,/home/ec2-user/spark_jars/aws-java-sdk-bundle-1.11.901.jar,/home/ec2-user/spark_jars/mysql-connector-j-8.0.33.jar"
     spark = SparkSession.builder \
         .appName(app_name) \
-        .config("spark.jars", jars_path) \
+        .config("spark.jars", "/home/ec2-user/spark_jars/mysql-connector-j-8.0.33.jar") \
+        .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.2,com.amazonaws:aws-java-sdk-bundle:1.11.1026") \
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
         .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.DefaultAWSCredentialsProviderChain") \
         .getOrCreate()
     return spark
 
-def read_and_normalize(spark: SparkSession, path: str, service_type: str, years: List[int], months: Union[List[int], str] = "*") -> DataFrame:
-    if months == "*":
-        parquet_paths = [f"{path}/year={year}/month=*/*.parquet" for year in years]
-    else:
-        parquet_paths = [f"{path}/year={year}/month={month}/*.parquet" for year in years for month in months]
+def load_dataframes(spark: SparkSession) -> DataFrame:
+    dfs = []
+    for service in SERVICE_TYPES:
+        base_path = f"{TRUSTED_PATH}/{service}"
+        try:
+            df = spark.read.option("basePath", base_path).parquet(f"{base_path}/*/*/*.parquet")
+            df = df.withColumn("service_type", lit(service))
+            dfs.append(df)
+            
+        except:
+            print(f"Nenhum dado encontrado para {service}")
+    return dfs
 
-    df = spark.read.option("basePath", path).parquet(*parquet_paths)
-    df = df.withColumn("service_type", lit(service_type))
-
+def normalize_columns(df: DataFrame) -> DataFrame:
     rename_map = {
         "tpep_pickup_datetime": "pickup_datetime",
         "tpep_dropoff_datetime": "dropoff_datetime",
         "lpep_pickup_datetime": "pickup_datetime",
         "lpep_dropoff_datetime": "dropoff_datetime",
-        "PULocationID": "pickup_location_id",
-        "DOlocationID": "dropoff_location_id",
-        "RatecodeID": "ratecode_id",
-        "VendorID": "vendor_id",
+        "PULocationID": "pickup_location",
+        "DOLocationID": "dropoff_location",
+        "RatecodeID": "code_ratecode",
+        "VendorID": "code_vendor",
+        "originating_base_num": "originating_base_number",
         "Affiliated_base_number": "affiliated_base_number",
-        "originating_base_num": "originating_base_number"
+        "payment_type": "code_payment_type"
     }
-    for old_col, new_col in rename_map.items():
-        if old_col in df.columns:
-            df = df.withColumnRenamed(old_col, new_col)
+    for old, new in rename_map.items():
+        if old in df.columns:
+            df = df.withColumnRenamed(old, new)
 
-    type_map = {
-        "vendor_id": LongType(),
-        "ratecode_id": DoubleType(),
-        "payment_type": DoubleType(),
+    cast_map = {
+        "code_vendor": LongType(),
+        "code_ratecode": DoubleType(),
+        "code_payment_type": DoubleType(),
         "trip_type": DoubleType(),
-        "pickup_location_id": DoubleType(),
-        "dropoff_location_id": DoubleType()
+        "pickup_location": DoubleType(),
+        "dropoff_location": DoubleType()
     }
-    for col_name, data_type in type_map.items():
+    for col_name, dtype in cast_map.items():
         if col_name in df.columns:
-            df = df.withColumn(col_name, df[col_name].cast(data_type))
-
-    required_cols = [
-        "pickup_datetime", "dropoff_datetime", "vendor_id", "ratecode_id",
-        "payment_type", "trip_type", "pickup_location_id", "dropoff_location_id",
-        "passenger_count", "trip_distance", "fare_amount", "tip_amount",
-        "tolls_amount", "total_amount", "extra", "mta_tax", "improvement_surcharge",
-        "ehail_fee", "congestion_surcharge", "airport_fee", "sales_tax", "bcf",
-        "driver_pay", "store_and_fwd_flag", "shared_request_flag", "shared_match_flag",
-        "access_a_ride_flag", "wav_request_flag", "wav_match_flag", "affiliated_base_number",
-        "originating_base_number", "has_problem", "problem_description", "year", "month"
-    ]
-    for col_name in required_cols:
-        if col_name not in df.columns:
-            df = df.withColumn(col_name, lit(None).cast(StringType()))
-
-    df = df.withColumn("pickup_date", to_date("pickup_datetime")) \
-           .withColumn("dropoff_date", to_date("dropoff_datetime")) \
-           .withColumn("trip_duration_minutes", (col("dropoff_datetime").cast("long") - col("pickup_datetime").cast("long")) / 60) \
-           .withColumn("weekday", date_format(col("pickup_datetime"), "EEEE")) \
-           .withColumn("hour", hour("pickup_datetime")) \
-           .withColumn("fk_time", date_format("dropoff_datetime", "ddMMyyyy").cast("int")) \
-           .withColumn("sk_trip", monotonically_increasing_id())
-
+            df = df.withColumn(col_name, col(col_name).cast(dtype))
     return df
 
-def write_to_rds(df: DataFrame, table_name: str):
-    print(f"📤 Exportando para RDS: {table_name}")
-    df.repartition(10).write.jdbc(
-        url=RDS_JDBC_URL,
-        table=table_name,
-        mode="append",
-        properties={
-            "user": RDS_USER,
-            "password": RDS_PASSWORD,
-            "driver": "com.mysql.cj.jdbc.Driver",
-            "batchsize": "500"
-        }
+def create_df_service_type(df: DataFrame, spark: SparkSession, table_name: str = 'dim_service_type'):
+    # Tabela de dimensão com descrição simples
+    df_service_type = df.select("service_type").dropDuplicates() \
+        .withColumnRenamed("service_type", "code")  # renomeando para 'code' para manter 'description' limpa
+    
+    # Adicionando a coluna de descrição completa
+    df_service_type = df_service_type.withColumn(
+        "description",
+        when(df_service_type.code == "yellowTaxi", "Yellow Taxi")
+        .when(df_service_type.code == "greenTaxi", "Green Taxi")
+        .when(df_service_type.code == "forHireVehicle", "For-Hire Vehicle (FHV)")
+        .when(df_service_type.code == "highVolumeForHire", "High-Volume For-Hire Vehicle")
+        .otherwise("Desconhecido")
     )
+    
+    # Adicionando coluna 'category'
+    df_service_type = df_service_type.withColumn(
+        "category",
+        when(df_service_type.code.isin("yellowTaxi", "greenTaxi"), "Taxi")
+        .when(df_service_type.code.isin("forHireVehicle", "highVolumeForHire"), "For-Hire")
+        .otherwise("Desconhecido")
+    )
+    
+    # Adicionando coluna 'regulation_body'
+    df_service_type = df_service_type.withColumn(
+        "regulation_body",
+        when(df_service_type.code.isin("yellowTaxi", "greenTaxi"), "TLC")
+        .when(df_service_type.code.isin("forHireVehicle", "highVolumeForHire"), "Empresas Privadas")
+        .otherwise("Desconhecido")
+    )
+    df_service_type.show(10)
+    write_to_dw(df=df_service_type, spark=spark, table_name=table_name)
+    return
+    
+def create_df_date(df: DataFrame, spark: SparkSession, table_name: str = 'dim_date'):
+    df = df.withColumn("pickup_date", to_date("pickup_datetime"))
+
+    
+    df_date = df.select("pickup_date").distinct() \
+        .withColumn("pk_date", date_format(col("pickup_date"), "yyyyMMdd")) \
+        .withColumn("day", dayofmonth("pickup_date")) \
+        .withColumn("month", month("pickup_date")) \
+        .withColumn("year", year("pickup_date")) \
+        .withColumn("day_of_week", dayofweek("pickup_date"))
+    write_to_dw(df=df_date, spark=spark, table_name=table_name)
+    return
+
+def create_dimensions_and_fact(df: DataFrame, spark: SparkSession):
+    fact_taxi_trip = df.select(
+        "trip_id", "pickup_datetime", "dropoff_datetime", "passenger_count",
+        "trip_distance", "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
+        "total_amount", "fk_payment_type", "fk_ratecode", "fk_vendor", "fk_location",
+        "fk_service_type", "fk_date"
+    )
+    df = df.withColumn("trip_id", monotonically_increasing_id())
+    
+
+    # df = df.join(dim_date.select("pickup_date", "pk_date"), on="pickup_date", how="left") \
+    #     .withColumnRenamed("pk_date", "fk_date")
+        
+
+    dim_vendor = df.select("code_vendor").dropna().dropDuplicates().withColumn("pk_vendor", monotonically_increasing_id()) \
+        .withColumnRenamed("code_vendor", "code")
+
+    df = df.join(dim_vendor, on="code", how="left") \
+        .withColumnRenamed("pk_vendor", "fk_vendor")
+
+    dim_payment_type = df.select("code_payment_type").dropna().dropDuplicates().withColumn("pk_payment_type", monotonically_increasing_id()) \
+        .withColumnRenamed("code_payment_type", "code")
+
+    df = df.join(dim_payment_type, on="code", how="left") \
+        .withColumnRenamed("pk_payment_type", "fk_payment_type")
+
+    dim_ratecode = df.select("code_ratecode").dropna().dropDuplicates().withColumn("pk_ratecode", monotonically_increasing_id()) \
+        .withColumnRenamed("code_ratecode", "code")
+
+    df = df.join(dim_ratecode, on="code", how="left") \
+        .withColumnRenamed("pk_ratecode", "fk_ratecode")
+
+    dim_location = df.select("pickup_location", "dropoff_location").dropna().dropDuplicates() \
+        .withColumn("pk_location", monotonically_increasing_id())
+
+    df = df.join(dim_location, on=["pickup_location", "dropoff_location"], how="left") \
+        .withColumnRenamed("pk_location", "fk_location")
+
+
+    
+    # tables = {
+    #     "dim_date": dim_date,
+    #     "dim_vendor": dim_vendor,
+    #     "dim_payment_type": dim_payment_type,
+    #     "dim_ratecode": dim_ratecode,
+    #     "dim_location": dim_location,
+    #     "fact_taxi_trip": fact_taxi_trip
+    # }
+
+    # for name, df in tables.items():
+    #     df.write.mode("overwrite").parquet(f"{DW_PATH}/{name}")
+    #     df.write \
+    #         .format("jdbc") \
+    #         .option("url", RDS_JDBC_URL) \
+    #         .option("dbtable", name) \
+    #         .option("user", RDS_USER) \
+    #         .option("password", RDS_PASSWORD) \
+    #         .option("driver", "com.mysql.cj.jdbc.Driver") \
+    #         .mode("overwrite") \
+    #         .save()
+            
+def write_to_dw(df: DataFrame, spark: SparkSession, table_name):
+    df.write.mode("overwrite").parquet(f"{DW_PATH}/{table_name}")
+    df.write \
+        .format("jdbc") \
+        .option("url", RDS_JDBC_URL) \
+        .option("dbtable", table_name) \
+        .option("user", RDS_USER) \
+        .option("password", RDS_PASSWORD) \
+        .option("driver", "com.mysql.cj.jdbc.Driver") \
+        .mode("overwrite") \
+        .save()
 
 def main():
-    spark = create_spark_session("NYC Taxi - DW + RDS Export")
-
-    anos = [2024]
-    meses = [9, 10]  # ou "*" para todos os meses disponíveis
-
-    df = None
-    try:
-        df = read_and_normalize(spark, f"{TRUSTED_PATH}/yellowTaxi", "yellow", anos, meses)
-    except Exception as e:
-        print(f"⚠️ Erro ao carregar dados: {e}")
+    spark = create_spark_session("NYC Taxi Load to DW and RDS")
+    dfs = load_dataframes(spark)
+    
+    if not dfs:
+        print("Nenhum dado carregado.")
         return
+    df_union = normalize_columns(dfs[0])
+    
+    for df in dfs[1:]:
+        # df_union.show(10)
+        df_union = df_union.unionByName(normalize_columns(df), allowMissingColumns=True)
+    # df_union.select('service_type').distinct().show()
+    create_df_date(df_union, spark)
+    # create_df_service_type(df_union, spark)
+    # create_dimensions_and_fact(df_union, spark)
+    
+    # df_yellow = spark.read.option("basePath", base_path).parquet(f"{base_path}/*/*/*.parquet")
+    
+    # for service in SERVICE_TYPES:
+    #     base_path = f"{TRUSTED_PATH}/{service}"
+    #     try:
+    #         df = spark.read.option("basePath", base_path).parquet(f"{base_path}/*/*/*.parquet")
 
-    print("✅ Dados lidos com sucesso")
-
-    df.write.mode("overwrite").parquet(f"{DW_PATH}/fact_taxi_trip")
-    print("💾 Dados salvos na camada DW (Parquet)")
-
-    write_to_rds(df, "fact_taxi_trip")
-    print("📤 Dados exportados para o RDS com sucesso")
-
+    #         df = df.withColumn("service_type", lit(service))
+    #         # df.show(10)
+    #         df2 = normalize_columns(df)
+    #         print('Pós normalize_columns')
+    #         df2.show(10)
+    #     except:
+    #         print(f"Nenhum dado encontrado para {service}")
     spark.stop()
-    print("🏁 Processo finalizado com sucesso")
 
 if __name__ == "__main__":
     main()

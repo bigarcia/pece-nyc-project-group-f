@@ -1,4 +1,3 @@
-
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
     col, year, month, dayofmonth, dayofweek, to_date, lit, monotonically_increasing_id
@@ -6,18 +5,32 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import LongType, DoubleType
 import os
 
-BUCKET_S3 = "mba-nyc-dataset"
+# Caminhos fixos utilizados
+BUCKET_S3 = "f-mba-nyc-dataset"
 TRUSTED_PATH = f"s3a://{BUCKET_S3}/trusted"
 DW_PATH = f"s3a://{BUCKET_S3}/dw"
-RDS_JDBC_URL = "jdbc:mysql://nyc-dw-mysql-v2.coseekllgrql.us-east-1.rds.amazonaws.com:3306/nyc_dw"
+RDS_JDBC_JAR = f"s3a://{BUCKET_S3}/emr/jars/mysql-connector-j-8.0.33.jar"
+RDS_JDBC_URL = "jdbc:mysql://nyc-dw-mysql-v2.chmgbrx9sdjy.us-east-1.rds.amazonaws.com:3306/nyc_dw"
 RDS_USER = "admin"
 RDS_PASSWORD = "GrupoF_MBA_nyc2025"
-RDS_JAR_PATH = f"s3://{BUCKET_S3}/emr/jars/mysql-connector-j-8.0.33.jar"
-
-SERVICE_TYPES = ["yellowTaxi", "greenTaxi", "forHireVehicle", "hvfhs"]
+SERVICE_TYPES = ["yellowTaxi", "greenTaxi", "forHireVehicle", "highVolumeForHire"]
 
 def create_spark_session(app_name: str) -> SparkSession:
-    return SparkSession.builder         .appName(app_name)         .config("spark.jars", RDS_JAR_PATH)         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")         .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")         .getOrCreate()
+    """
+    Cria uma SparkSession com configurações específicas para:
+    - Leitura de dados no S3 via S3A;
+    - Escrita em banco de dados MySQL via JDBC.
+
+    :param app_name: Nome da aplicação Spark.
+    :return: Objeto SparkSession configurado.
+    """
+    return SparkSession.builder \
+        .appName(app_name) \
+        .config("spark.jars", RDS_JDBC_JAR) \
+        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
+        .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.DefaultAWSCredentialsProviderChain") \
+        .getOrCreate()
+
 
 def load_dataframes(spark: SparkSession) -> DataFrame:
     dfs = []
@@ -66,29 +79,45 @@ def create_dimensions_and_fact(df: DataFrame, spark: SparkSession):
     df = df.withColumn("trip_id", monotonically_increasing_id())
     df = df.withColumn("pickup_date", to_date("pickup_datetime"))
 
-    dim_date = df.select("pickup_date").distinct()         .withColumn("pk_date", monotonically_increasing_id())         .withColumn("day", dayofmonth("pickup_date"))         .withColumn("month", month("pickup_date"))         .withColumn("year", year("pickup_date"))         .withColumn("day_of_week", dayofweek("pickup_date"))
+    dim_date = df.select("pickup_date").distinct() \
+        .withColumn("pk_date", monotonically_increasing_id()) \
+        .withColumn("day", dayofmonth("pickup_date")) \
+        .withColumn("month", month("pickup_date")) \
+        .withColumn("year", year("pickup_date")) \
+        .withColumn("day_of_week", dayofweek("pickup_date"))
 
-    df = df.join(dim_date.select("pickup_date", "pk_date"), on="pickup_date", how="left")            .withColumnRenamed("pk_date", "fk_date")
+    df = df.join(dim_date.select("pickup_date", "pk_date"), on="pickup_date", how="left") \
+        .withColumnRenamed("pk_date", "fk_date")
 
-    dim_service_type = df.select("service_type").dropDuplicates().withColumn("pk_service_type", monotonically_increasing_id())                          .withColumnRenamed("service_type", "description")
+    dim_service_type = df.select("service_type").dropDuplicates().withColumn("pk_service_type", monotonically_increasing_id()) \
+        .withColumnRenamed("service_type", "description")
 
-    df = df.join(dim_service_type, on="description", how="left")            .withColumnRenamed("pk_service_type", "fk_service_type")
+    df = df.join(dim_service_type, on="description", how="left") \
+        .withColumnRenamed("pk_service_type", "fk_service_type")
 
-    dim_vendor = df.select("code_vendor").dropna().dropDuplicates().withColumn("pk_vendor", monotonically_increasing_id())                    .withColumnRenamed("code_vendor", "code")
+    dim_vendor = df.select("code_vendor").dropna().dropDuplicates().withColumn("pk_vendor", monotonically_increasing_id()) \
+        .withColumnRenamed("code_vendor", "code")
 
-    df = df.join(dim_vendor, on="code", how="left")            .withColumnRenamed("pk_vendor", "fk_vendor")
+    df = df.join(dim_vendor, on="code", how="left") \
+        .withColumnRenamed("pk_vendor", "fk_vendor")
 
-    dim_payment_type = df.select("code_payment_type").dropna().dropDuplicates().withColumn("pk_payment_type", monotonically_increasing_id())                          .withColumnRenamed("code_payment_type", "code")
+    dim_payment_type = df.select("code_payment_type").dropna().dropDuplicates().withColumn("pk_payment_type", monotonically_increasing_id()) \
+        .withColumnRenamed("code_payment_type", "code")
 
-    df = df.join(dim_payment_type, on="code", how="left")            .withColumnRenamed("pk_payment_type", "fk_payment_type")
+    df = df.join(dim_payment_type, on="code", how="left") \
+        .withColumnRenamed("pk_payment_type", "fk_payment_type")
 
-    dim_ratecode = df.select("code_ratecode").dropna().dropDuplicates().withColumn("pk_ratecode", monotonically_increasing_id())                      .withColumnRenamed("code_ratecode", "code")
+    dim_ratecode = df.select("code_ratecode").dropna().dropDuplicates().withColumn("pk_ratecode", monotonically_increasing_id()) \
+        .withColumnRenamed("code_ratecode", "code")
 
-    df = df.join(dim_ratecode, on="code", how="left")            .withColumnRenamed("pk_ratecode", "fk_ratecode")
+    df = df.join(dim_ratecode, on="code", how="left") \
+        .withColumnRenamed("pk_ratecode", "fk_ratecode")
 
-    dim_location = df.select("pickup_location", "dropoff_location").dropna().dropDuplicates()                      .withColumn("pk_location", monotonically_increasing_id())
+    dim_location = df.select("pickup_location", "dropoff_location").dropna().dropDuplicates() \
+        .withColumn("pk_location", monotonically_increasing_id())
 
-    df = df.join(dim_location, on=["pickup_location", "dropoff_location"], how="left")            .withColumnRenamed("pk_location", "fk_location")
+    df = df.join(dim_location, on=["pickup_location", "dropoff_location"], how="left") \
+        .withColumnRenamed("pk_location", "fk_location")
 
     fact_taxi_trip = df.select(
         "trip_id", "pickup_datetime", "dropoff_datetime", "passenger_count",
@@ -109,7 +138,15 @@ def create_dimensions_and_fact(df: DataFrame, spark: SparkSession):
 
     for name, df in tables.items():
         df.write.mode("overwrite").parquet(f"{DW_PATH}/{name}")
-        df.write             .format("jdbc")             .option("url", RDS_JDBC_URL)             .option("dbtable", name)             .option("user", RDS_USER)             .option("password", RDS_PASSWORD)             .option("driver", "com.mysql.cj.jdbc.Driver")             .mode("overwrite")             .save()
+        df.write \
+            .format("jdbc") \
+            .option("url", RDS_JDBC_URL) \
+            .option("dbtable", name) \
+            .option("user", RDS_USER) \
+            .option("password", RDS_PASSWORD) \
+            .option("driver", "com.mysql.cj.jdbc.Driver") \
+            .mode("overwrite") \
+            .save()
 
 def main():
     spark = create_spark_session("NYC Taxi Load to DW and RDS")

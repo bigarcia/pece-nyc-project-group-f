@@ -124,7 +124,7 @@ A alteração da senha não reinicia a instância
    
    7.1 Conectar na instância
    
-`mysql -h nyc-dw-mysql-v2.coseekllgrql.us-east-1.rds.amazonaws.com -u admin -p`
+`mysql -h nyc-dw-mysql-v2.chmgbrx9sdjy.us-east-1.rds.amazonaws.com -u admin -p`
 
 ![image](https://github.com/user-attachments/assets/aaf58740-9938-4701-b2ab-b2ec0c88c310)
 

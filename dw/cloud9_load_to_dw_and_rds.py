@@ -1,9 +1,11 @@
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
-    col, year, month, dayofmonth, dayofweek, to_date, lit, monotonically_increasing_id, when, date_format
+    col, year, month, dayofmonth, dayofweek, to_date, lit, monotonically_increasing_id, when, date_format, expr, row_number
 )
 from pyspark.sql.types import LongType, DoubleType
+from pyspark.sql.window import Window
 from datetime import datetime, timedelta
+import os
 
 # Caminho da camada trusted e destino da camada dw
 BUCKET_S3 = "f-mba-nyc-dataset"
@@ -33,7 +35,7 @@ def load_dataframes(spark: SparkSession, year = '*', month = '*') -> DataFrame:
     for service in SERVICE_TYPES:
         base_path = f"{TRUSTED_PATH}/{service}"
         try:
-            df = spark.read.option("basePath", base_path).parquet(f"{base_path}/{year}/{month}/*.parquet")
+            df = spark.read.option("basePath", base_path).parquet(f"{base_path}/*/{month}/*.parquet")
             df = df.withColumn("service_type", lit(service))
             dfs.append(df)
 
@@ -122,8 +124,8 @@ def create_dim_service_type(df: DataFrame, spark: SparkSession, table_name: str 
 
 
 
-    print("Loading dim_service_type to DW and RDS")
-    write_to_dw(df=df_service_type, spark=spark, table_name=table_name)
+    # print("Loading dim_service_type to DW and RDS")
+    # write_to_dw(df=df_service_type, spark=spark, table_name=table_name)
 
     return df
 
@@ -210,8 +212,8 @@ def create_dim_vendor(df: DataFrame, spark: SparkSession, table_name: str = 'dim
     # print("dim_vendor")
     # df_vendor.show()
 
-    print("Loading dim_vendor to DW and RDS")
-    write_to_dw(df=df_vendor, spark=spark, table_name=table_name)
+    # print("Loading dim_vendor to DW and RDS")
+    # write_to_dw(df=df_vendor, spark=spark, table_name=table_name)
 
     # Realiza o join usando os nomes corretos
     df = df.join(df_vendor.select("sk_vendor", "id_vendor"), on="id_vendor", how="left") \
@@ -246,8 +248,8 @@ def create_dim_payment_type(df: DataFrame, spark: SparkSession, table_name: str 
     # df_payment_type.show()
 
 
-    print("Loading dim_payment_type to DW and RDS")
-    write_to_dw(df=df_payment_type, spark=spark, table_name=table_name)
+    # print("Loading dim_payment_type to DW and RDS")
+    # write_to_dw(df=df_payment_type, spark=spark, table_name=table_name)
 
     df = df.join(df_payment_type.select("id_payment_type","sk_payment_type"), on="id_payment_type", how="left") \
           .withColumnRenamed("sk_payment_type", "fk_payment_type")
@@ -283,8 +285,8 @@ def create_dim_rate(df: DataFrame, spark: SparkSession, table_name: str = 'dim_r
     # df_rate.show()
 
 
-    print("Loading dim_rate to DW and RDS")
-    write_to_dw(df=df_rate, spark=spark, table_name=table_name)
+    # print("Loading dim_rate to DW and RDS")
+    # write_to_dw(df=df_rate, spark=spark, table_name=table_name)
 
     df = df.join(df_rate.select("sk_ratecode","id_rate"), on="id_rate", how="left") \
           .withColumnRenamed("sk_ratecode", "fk_ratecode")
@@ -311,6 +313,7 @@ def create_dim_location(spark: SparkSession, table_name: str = 'dim_location') -
 
 
     print("Loading dim_location to DW and RDS")
+
     write_to_dw(df=df_location, spark=spark, table_name=table_name)
 
     return
@@ -362,9 +365,9 @@ def create_fact_taxi_trip(df: DataFrame, spark: SparkSession, table_name: str = 
                             "trip_distance", "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
                             "total_amount")
 
-    # df_fact_taxi_trip_sample = df_fact_taxi_trip.sample(fraction=0.01).limit(10000)
+    df_fact_taxi_trip_sample = df_fact_taxi_trip.sample(fraction=0.08).limit(10000)
     print("Loading fact_taxi_trip to DW and RDS")
-    write_to_dw(df=df_fact_taxi_trip, spark=spark, table_name=table_name)
+    write_to_dw(df=df_fact_taxi_trip_sample, spark=spark, table_name=table_name)
 
     return df
 

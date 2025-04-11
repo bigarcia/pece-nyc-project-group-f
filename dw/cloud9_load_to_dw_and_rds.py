@@ -291,7 +291,7 @@ def create_fact_taxi_trip(df: DataFrame, spark: SparkSession, table_name: str = 
     df_fact_taxi_trip = df.select("fk_payment_type", "fk_ratecode", "fk_vendor","pickup_datetime", "dropoff_datetime",
                             "id_location_pickup", "id_location_dropoff", "passenger_count",
                             "trip_distance", "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
-                            "total_amount"
+                            "total_amount", "service_type"
                         ) \
                         .withColumn("sk_trip", monotonically_increasing_id()) \
                         .withColumn("pickup_date", date_format("pickup_datetime", "yyyyMMdd").cast("int")) \
@@ -309,11 +309,11 @@ def create_fact_taxi_trip(df: DataFrame, spark: SparkSession, table_name: str = 
     df_fact_taxi_trip_sample = df_fact_taxi_trip.sample(fraction=0.01).limit(10000)
 
 
-    print("df_fact_taxi_trip_sample")
-    df_fact_taxi_trip_sample.show(5)
+    # print("df_fact_taxi_trip_sample")
+    # df_fact_taxi_trip_sample.show(5)
 
-    # print("Loading fact_taxi_trip to DW and RDS")
-    # write_to_dw(df=df_fact_taxi_trip_sample, spark=spark, table_name=table_name)
+    print("Loading fact_taxi_trip to DW and RDS")
+    write_to_dw(df=df_fact_taxi_trip_sample, spark=spark, table_name=table_name)
 
     return df
 

@@ -1,11 +1,9 @@
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
-    col, year, month, dayofmonth, dayofweek, to_date, lit, monotonically_increasing_id, when, date_format, expr, row_number
+    col, year, month, dayofmonth, dayofweek, to_date, lit, monotonically_increasing_id, when, date_format
 )
 from pyspark.sql.types import LongType, DoubleType
-from pyspark.sql.window import Window
 from datetime import datetime, timedelta
-import os
 
 # Caminho da camada trusted e destino da camada dw
 BUCKET_S3 = "f-mba-nyc-dataset"
@@ -26,15 +24,16 @@ def create_spark_session(app_name: str) -> SparkSession:
         .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.2,com.amazonaws:aws-java-sdk-bundle:1.11.1026") \
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
         .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.DefaultAWSCredentialsProviderChain") \
+        .config("spark.local.dir", "/home/ec2-user/tmp_spark") \
         .getOrCreate()
     return spark
 
-def load_dataframes(spark: SparkSession) -> DataFrame:
+def load_dataframes(spark: SparkSession, year = '*', month = '*') -> DataFrame:
     dfs = []
     for service in SERVICE_TYPES:
         base_path = f"{TRUSTED_PATH}/{service}"
         try:
-            df = spark.read.option("basePath", base_path).parquet(f"{base_path}/*/*/*.parquet")
+            df = spark.read.option("basePath", base_path).parquet(f"{base_path}/{year}/{month}/*.parquet")
             df = df.withColumn("service_type", lit(service))
             dfs.append(df)
 
@@ -117,10 +116,14 @@ def create_dim_service_type(df: DataFrame, spark: SparkSession, table_name: str 
 
     #Reorder
     df_service_type = df_service_type.select("sk_service_type", "id_service_type", "description", "category", "regulation_body")
-    print("dim_service_type")
-    df_service_type.show()
 
-    # write_to_dw(df=df_service_type, spark=spark, table_name=table_name)
+    # print("dim_service_type")
+    # df_service_type.show()
+
+
+
+    print("Loading dim_service_type to DW and RDS")
+    write_to_dw(df=df_service_type, spark=spark, table_name=table_name)
 
     return df
 
@@ -144,14 +147,15 @@ def create_dim_date(spark: SparkSession, table_name: str = 'dim_date'):
         .withColumn("month", month("date")) \
         .withColumn("year", year("date")) \
         .withColumn("day_of_week", date_format("date", "EEEE")) \
-        .withColumn("week_day", dayofweek("date")) \
-        .withColumn("business_day", ~col("week_day").isin(1, 7))  # 1 = Sunday, 7 = Saturday
+        .withColumn("week_day", dayofweek("date"))
 
-    df_date = df_date.select("sk_date", "date", "day", "month", "year", "week_day", "business_day")
+    df_date = df_date.select("sk_date", "date", "day", "month", "year", "day_of_week", "week_day")
 
-    df_date.show(10)
+    # df_date.show(10)
 
-    # write_to_dw(df=df_date, spark=spark, table_name=table_name)
+
+    print("Loading dim_date to DW and RDS")
+    write_to_dw(df=df_date, spark=spark, table_name=table_name)
 
 
     return
@@ -186,6 +190,7 @@ def create_dim_date(spark: SparkSession, table_name: str = 'dim_date'):
 
 
 def create_dim_vendor(df: DataFrame, spark: SparkSession, table_name: str = 'dim_vendor') -> DataFrame:
+
     df_vendor = df.select("id_vendor") \
         .dropna() \
         .dropDuplicates() \
@@ -201,12 +206,12 @@ def create_dim_vendor(df: DataFrame, spark: SparkSession, table_name: str = 'dim
 
     #reorder
     df_vendor = df_vendor.select("sk_vendor", "id_vendor", "vendor_description")
-    print("dim_vendor")
-    df_vendor.show()
 
-    # bk -> business key
+    # print("dim_vendor")
+    # df_vendor.show()
 
-    # write_to_dw(df=df_vendor, spark=spark, table_name=table_name)
+    print("Loading dim_vendor to DW and RDS")
+    write_to_dw(df=df_vendor, spark=spark, table_name=table_name)
 
     # Realiza o join usando os nomes corretos
     df = df.join(df_vendor.select("sk_vendor", "id_vendor"), on="id_vendor", how="left") \
@@ -237,11 +242,12 @@ def create_dim_payment_type(df: DataFrame, spark: SparkSession, table_name: str 
 
     df_payment_type=df_payment_type.select("sk_payment_type", "id_payment_type", "payment_type_description")
 
-    print("dim_payment_type")
-    df_payment_type.show()
+    # print("dim_payment_type")
+    # df_payment_type.show()
 
 
-    # write_to_dw(df=df_payment_type, spark=spark, table_name=table_name)
+    print("Loading dim_payment_type to DW and RDS")
+    write_to_dw(df=df_payment_type, spark=spark, table_name=table_name)
 
     df = df.join(df_payment_type.select("id_payment_type","sk_payment_type"), on="id_payment_type", how="left") \
           .withColumnRenamed("sk_payment_type", "fk_payment_type")
@@ -253,8 +259,8 @@ def create_dim_payment_type(df: DataFrame, spark: SparkSession, table_name: str 
 
     return df
 
-def create_dim_rate(df: DataFrame, spark: SparkSession, table_name: str = 'dim_ratecode') -> DataFrame:
-    df_ratecode = (
+def create_dim_rate(df: DataFrame, spark: SparkSession, table_name: str = 'dim_rate') -> DataFrame:
+    df_rate = (
         df.select("id_rate") \
           .dropna() \
           .dropDuplicates() \
@@ -272,13 +278,15 @@ def create_dim_rate(df: DataFrame, spark: SparkSession, table_name: str = 'dim_r
           )
     )
 
-    df_ratecode= df_ratecode.select("sk_ratecode", "id_rate", "ratecode_description")
-    print("dim_ratecode")
-    df_ratecode.show()
+    df_rate= df_rate.select("sk_ratecode", "id_rate", "ratecode_description")
+    # print("dim_rate")
+    # df_rate.show()
 
-    # write_to_dw(df=df_ratecode, spark=spark, table_name=table_name)
 
-    df = df.join(df_ratecode.select("sk_ratecode","id_rate"), on="id_rate", how="left") \
+    print("Loading dim_rate to DW and RDS")
+    write_to_dw(df=df_rate, spark=spark, table_name=table_name)
+
+    df = df.join(df_rate.select("sk_ratecode","id_rate"), on="id_rate", how="left") \
           .withColumnRenamed("sk_ratecode", "fk_ratecode")
     # print("df")
     # df.show(1, vertical = True)
@@ -298,11 +306,12 @@ def create_dim_location(spark: SparkSession, table_name: str = 'dim_location') -
 
     df_location = df_location.select("sk_location", "id_location", "borough", "zone", "service_zone")
 
-    print("dim_location")
-    df_location.show()
+    # print("dim_location")
+    # df_location.show()
 
 
-    # write_to_dw(df=df_location, spark=spark, table_name=table_name)
+    print("Loading dim_location to DW and RDS")
+    write_to_dw(df=df_location, spark=spark, table_name=table_name)
 
     return
     #=====RASCUNHO
@@ -336,18 +345,26 @@ def create_fact_taxi_trip(df: DataFrame, spark: SparkSession, table_name: str = 
     df_fact_taxi_trip = df.select("fk_payment_type", "fk_ratecode", "fk_vendor","pickup_datetime", "dropoff_datetime",
                             "id_location_pickup", "id_location_dropoff", "passenger_count",
                             "trip_distance", "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
-                            "total_amount", "description"
+                            "total_amount"
                         ) \
                         .withColumn("sk_trip", monotonically_increasing_id()) \
                         .withColumn("pickup_date", to_date("pickup_datetime")) \
-                        .withColumn("dropoff_datet", to_date("dropoff_datetime")) \
+                        .withColumn("dropoff_date", to_date("dropoff_datetime")) \
                         .withColumnRenamed("service_type", "fk_service_type")
 
 
-    print("fact_taxi_trip")
-    df_fact_taxi_trip.show()
+    # print("fact_taxi_trip")
+    # df_fact_taxi_trip.show(5)
 
-    # write_to_dw(df=fact_taxi_trip, spark=spark, table_name=table_name)
+    df_fact_taxi_trip = df_fact_taxi_trip.select("sk_trip", "fk_payment_type", "fk_ratecode", "fk_vendor","pickup_datetime",
+                            "pickup_date", "dropoff_datetime", "dropoff_date",
+                            "id_location_pickup", "id_location_dropoff", "passenger_count",
+                            "trip_distance", "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
+                            "total_amount")
+
+    # df_fact_taxi_trip_sample = df_fact_taxi_trip.sample(fraction=0.01).limit(10000)
+    print("Loading fact_taxi_trip to DW and RDS")
+    write_to_dw(df=df_fact_taxi_trip, spark=spark, table_name=table_name)
 
     return df
 
@@ -359,15 +376,15 @@ def create_dimensions_and_fact(df: DataFrame, spark: SparkSession):
     df = create_dim_payment_type(df, spark)
     df = create_dim_rate(df, spark)
     df = create_dim_service_type(df, spark)
-    # df = create_fact_taxi_trip(df, spark)
+    df = create_fact_taxi_trip(df, spark)
 
-    create_dim_location(spark)
-    create_dim_date(spark)
+    # create_dim_location(spark)
+    # create_dim_date(spark)
 
 
-def write_to_dw(df: DataFrame, spark: SparkSession, table_name):
-    df.write.mode("overwrite").parquet(f"{DW_PATH}/{table_name}")
-    df.write \
+def write_to_dw(df: DataFrame, spark: SparkSession, table_name, partition_s3=4, partition_rds=1):
+    df.coalesce(partition_s3).write.mode("overwrite").parquet(f"{DW_PATH}/{table_name}")
+    df.coalesce(partition_rds).write \
         .format("jdbc") \
         .option("url", RDS_JDBC_URL) \
         .option("dbtable", table_name) \
@@ -379,7 +396,7 @@ def write_to_dw(df: DataFrame, spark: SparkSession, table_name):
 
 def main():
     spark = create_spark_session("NYC Taxi Load to DW and RDS")
-    dfs = load_dataframes(spark)
+    dfs = load_dataframes(spark, month = "month=10")
 
     if not dfs:
         print("Nenhum dado carregado.")

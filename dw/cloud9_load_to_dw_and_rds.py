@@ -1,11 +1,9 @@
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
-    col, year, month, dayofmonth, dayofweek, to_date, lit, monotonically_increasing_id, when, date_format, expr, row_number
+    col, year, month, dayofmonth, dayofweek, to_date, lit, monotonically_increasing_id, when, date_format
 )
 from pyspark.sql.types import LongType, DoubleType
-from pyspark.sql.window import Window
 from datetime import datetime, timedelta
-import os
 
 # Caminho da camada trusted e destino da camada dw
 BUCKET_S3 = "f-mba-nyc-dataset"
@@ -162,34 +160,6 @@ def create_dim_date(spark: SparkSession, table_name: str = 'dim_date'):
 
     return
 
-    #=====RASCUNHO
-
-    # df_date = df.select("pickup_date").distinct() \
-    #     .withColumn("pk_date", date_format(col("pickup_date"), "yyyyMMdd")) \
-    #     .withColumn("sk_date", monotonically_increasing_id()) \
-    #     .withColumn("day", dayofmonth("pickup_date")) \
-    #     .withColumn("month", month("pickup_date")) \
-    #     .withColumn("year", year("pickup_date")) \
-    #     .withColumn("day_of_week", dayofweek("pickup_date"))
-
-
-    # df = df.join(df_date.select("sk_date", "pickup_date"), on="pickup_date", how="left")  \
-    #     .withColumnRenamed("sk_date", "fk_date")
-
-    # # print("df")
-    # # df.show(1, vertical = True)
-
-
-    # df_date.withColumnRenamed("pickup_date", "date")
-
-
-    # print("df_date")
-    # df_date.show()
-
-
-
-    # return df
-
 
 def create_dim_vendor(df: DataFrame, spark: SparkSession, table_name: str = 'dim_vendor') -> DataFrame:
 
@@ -317,31 +287,7 @@ def create_dim_location(spark: SparkSession, table_name: str = 'dim_location') -
     write_to_dw(df=df_location, spark=spark, table_name=table_name)
 
     return
-    #=====RASCUNHO
 
-
-
-    # df = (
-    #     df.join(df_location.withColumnRenamed("LocationID", "PUlocationID"), on="PUlocationID", how="left")
-    #       .withColumnRenamed("pk_location", "fk_id_location_pickup")
-    #       .withColumnRenamed("Borough", "pickup_borough")
-    #       .withColumnRenamed("Zone", "pickup_zone")
-    #       .withColumnRenamed("service_zone", "pickup_service_zone")
-    # )
-
-    # df = (
-    #     df.join(df_location.withColumnRenamed("PUlocationID", "DOlocationID"), on="DOlocationID", how="left")
-    #       .withColumnRenamed("pk_location", "fk_id_location_dropoff")
-    #       .withColumnRenamed("Borough", "dropoff_borough")
-    #       .withColumnRenamed("Zone", "dropoff_zone")
-    #       .withColumnRenamed("service_zone", "dropoff_service_zone")
-    # )
-
-    # print(df)
-    # df.show(1, vertical = True)
-
-
-    # return df
 
 def create_fact_taxi_trip(df: DataFrame, spark: SparkSession, table_name: str = 'fact_taxi_trip') -> DataFrame:
 
@@ -359,8 +305,8 @@ def create_fact_taxi_trip(df: DataFrame, spark: SparkSession, table_name: str = 
     # print("fact_taxi_trip")
     # df_fact_taxi_trip.show(5)
 
-    df_fact_taxi_trip = df_fact_taxi_trip.select("sk_trip", "fk_payment_type", "fk_ratecode", "fk_vendor","pickup_datetime",
-                            "pickup_date", "dropoff_datetime", "dropoff_date",
+    df_fact_taxi_trip = df_fact_taxi_trip.select("sk_trip", "fk_payment_type", "fk_ratecode", "fk_vendor",
+                            "fk_service_type", "pickup_datetime", "pickup_date", "dropoff_datetime", "dropoff_date",
                             "id_location_pickup", "id_location_dropoff", "passenger_count",
                             "trip_distance", "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
                             "total_amount")
@@ -373,7 +319,6 @@ def create_fact_taxi_trip(df: DataFrame, spark: SparkSession, table_name: str = 
 
 def create_dimensions_and_fact(df: DataFrame, spark: SparkSession):
 
-    # df = df.withColumn("fk_date", date_format("pickup_date", "yyyyMMdd").cast("int"))
 
     df = create_dim_vendor(df, spark)
     df = create_dim_payment_type(df, spark)
@@ -386,7 +331,7 @@ def create_dimensions_and_fact(df: DataFrame, spark: SparkSession):
 
 
 def write_to_dw(df: DataFrame, spark: SparkSession, table_name, partition_s3=4, partition_rds=1):
-    df.coalesce(partition_s3).write.mode("overwrite").parquet(f"{DW_PATH}/{table_name}")
+    # df.coalesce(partition_s3).write.mode("overwrite").parquet(f"{DW_PATH}/{table_name}")
     df.coalesce(partition_rds).write \
         .format("jdbc") \
         .option("url", RDS_JDBC_URL) \
@@ -407,31 +352,10 @@ def main():
     df_union = normalize_columns(dfs[0])
 
     for df in dfs[1:]:
-        # df_union.show(10)
         df_union = df_union.unionByName(normalize_columns(df), allowMissingColumns=True)
 
     create_dimensions_and_fact(df_union, spark)
 
-    # df_union.select('service_type').distinct().show()
-
-    # ==================================================
-
-
-
-    # df_yellow = spark.read.option("basePath", base_path).parquet(f"{base_path}/*/*/*.parquet")
-
-    # for service in SERVICE_TYPES:
-    #     base_path = f"{TRUSTED_PATH}/{service}"
-    #     try:
-    #         df = spark.read.option("basePath", base_path).parquet(f"{base_path}/*/*/*.parquet")
-
-    #         df = df.withColumn("service_type", lit(service))
-    #         # df.show(10)
-    #         df2 = normalize_columns(df)
-    #         print('Pós normalize_columns')
-    #         df2.show(10)
-    #     except:
-    #         print(f"Nenhum dado encontrado para {service}")
     spark.stop()
 
 if __name__ == "__main__":

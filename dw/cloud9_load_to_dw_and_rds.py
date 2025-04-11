@@ -111,16 +111,15 @@ def create_dim_service_type(df: DataFrame, spark: SparkSession, table_name: str 
     # print("df")
     # df.show(1, vertical = True)
 
-
     df_service_type = df_service_type.withColumnRenamed("service_type", "id_service_type")
 
     #Reorder
     df_service_type = df_service_type.select("sk_service_type", "id_service_type", "description", "category", "regulation_body")
 
+
+
     # print("dim_service_type")
     # df_service_type.show()
-
-
 
     # print("Loading dim_service_type to DW and RDS")
     # write_to_dw(df=df_service_type, spark=spark, table_name=table_name)
@@ -129,9 +128,7 @@ def create_dim_service_type(df: DataFrame, spark: SparkSession, table_name: str 
 
 
 
-    # return df.join(df_service_type, on="description", how="left") \
-        # .withColumnRenamed("pk_service_type", "fk_service_type")
-
+    # return
 def create_dim_date(spark: SparkSession, table_name: str = 'dim_date'):
 
     start_date = datetime(2024, 1, 1)
@@ -142,7 +139,7 @@ def create_dim_date(spark: SparkSession, table_name: str = 'dim_date'):
     df_date = spark.createDataFrame(date_list, ["date"])
 
     # Adiciona campos derivados
-    df_date = df_date.withColumn("sk_date", monotonically_increasing_id()) \
+    df_date = df_date.withColumn("sk_date", date_format("date", "yyyyMMdd").cast("int")) \
         .withColumn("day", dayofmonth("date")) \
         .withColumn("month", month("date")) \
         .withColumn("year", year("date")) \
@@ -297,13 +294,11 @@ def create_fact_taxi_trip(df: DataFrame, spark: SparkSession, table_name: str = 
                             "total_amount"
                         ) \
                         .withColumn("sk_trip", monotonically_increasing_id()) \
-                        .withColumn("pickup_date", to_date("pickup_datetime")) \
-                        .withColumn("dropoff_date", to_date("dropoff_datetime")) \
+                        .withColumn("pickup_date", date_format("pickup_datetime", "yyyyMMdd").cast("int")) \
+                        .withColumn("dropoff_date", date_format("dropoff_datetime", "yyyyMMdd").cast("int")) \
                         .withColumnRenamed("service_type", "fk_service_type")
 
 
-    # print("fact_taxi_trip")
-    # df_fact_taxi_trip.show(5)
 
     df_fact_taxi_trip = df_fact_taxi_trip.select("sk_trip", "fk_payment_type", "fk_ratecode", "fk_vendor",
                             "fk_service_type", "pickup_datetime", "pickup_date", "dropoff_datetime", "dropoff_date",
@@ -311,9 +306,14 @@ def create_fact_taxi_trip(df: DataFrame, spark: SparkSession, table_name: str = 
                             "trip_distance", "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
                             "total_amount")
 
-    df_fact_taxi_trip_sample = df_fact_taxi_trip.sample(fraction=0.08).limit(10000)
-    print("Loading fact_taxi_trip to DW and RDS")
-    write_to_dw(df=df_fact_taxi_trip_sample, spark=spark, table_name=table_name)
+    df_fact_taxi_trip_sample = df_fact_taxi_trip.sample(fraction=0.01).limit(10000)
+
+
+    print("df_fact_taxi_trip_sample")
+    df_fact_taxi_trip_sample.show(5)
+
+    # print("Loading fact_taxi_trip to DW and RDS")
+    # write_to_dw(df=df_fact_taxi_trip_sample, spark=spark, table_name=table_name)
 
     return df
 

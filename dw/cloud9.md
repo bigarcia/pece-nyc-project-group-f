@@ -15,7 +15,19 @@ wget https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.0.33/mysql-con
 
 
 Crie pasta temporária exclusiva pro Spark
+
 ```
 mkdir -p ~/tmp_spark
 chmod 777 ~/tmp_spark
 ```
+
+Limpa espaço para corrigir erro na execução por falta de espaço:
+
+```
+rm -rf /tmp/*
+rm -rf ~/tmp_spark
+```
+
+Espaço disponível:
+
+```df -h```
